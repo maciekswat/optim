@@ -1,16 +1,16 @@
+
 import numpy as np
 from sklearn.gaussian_process.kernels import RBF, Matern, WhiteKernel
 import sklearn.gaussian_process as gp
 from scipy.stats import norm
 from scipy.optimize import minimize
-# import matplotlib.pyplot as plt
+import collections
+import matplotlib.pyplot as plt
 from scipy.stats import signaltonoise
-import time
 #from numba import jit
 # sample next value
+import time
 
-
-# import line_profiler
 
 
 def expected_improvement(x, gaussian_process, evaluated_loss, n_params, delta = 0.01):
@@ -207,77 +207,6 @@ def bayesian_optimization2D(n_iters, target_func, bounds, x0 = None, n_pre_sampl
     return xyp, zp, evaluated_loss, times, model
 
 
-def find_max(xp, yp, model):
-    model.fit(xp,yp)
-    model.fit(xp, yp)
-    evaluated_loss = model.predict(xp)
-    opt_loc = np.argmax(evaluated_loss)
-    x_max = xp[opt_loc]
-    y_max, se = model.predict(x_max, return_std = True)
-    return x_max,y_max, se
-
-
-def choose_location(dataset_loc1, dataset_loc2, gp_params = None, alpha = 1e-3, epsilon = 1e-3, sig_level = 0.05):
-    """
-     Return a decision variable indicating which location to choose
-        decision = 1, loc1 > loc2
-                = 0 , inconclusive
-                = -1, loc1 < loc2
-
-    :param dataset_loc1: PS dataset for loc1
-    :param dataset_loc2: PS dataset for loc2
-    :param gp_params: params for gaussian process regressor (set to sklearn defaults)
-    :param alpha:
-    :param epsilon:
-    :param sig_level: significant level for t-test
-
-    """
-
-
-    # set up kernels
-    kernel_matern = Matern() + WhiteKernel(noise_level=1)
-    model = gp.GaussianProcessRegressor(kernel=kernel_matern, alpha=alpha, n_restarts_optimizer= 5, normalize_y=True)
-
-
-    # get predicted values for loc1
-    xp_loc1 = np.array(map(lambda x: [x], dataset_loc1[:,0]))
-    yp_loc1 = np.array(map(lambda y: [y], dataset_loc1[:,1]))
-
-
-
-    x_max_loc1, y_max_loc1, se_1 = find_max(xp_loc1, yp_loc1, model)
-
-
-    # get predicted values for loc2
-    xp_loc2 = np.array(map(lambda x: [x], dataset_loc2[:,0]))
-    yp_loc2 = np.array(map(lambda y: [y], dataset_loc2[:,1]))
-
-    x_max_loc2, y_max_loc2, se_2 = find_max(xp_loc2, yp_loc2, model)
-
-    t_stat = (y_max_loc1 - y_max_loc2)/np.sqrt(se_1**2 + se_2**2)
-    p_val = norm.cdf(- np.abs(t_stat))
-
-    if p_val < sig_level:
-        if t_stat > 0:
-            decision = {'Amplitude': x_max_loc1, 'Location': 'Loc1', 'decision': 1, 'tie': 0 }
-            print "Loc 1 is better than Loc 2"
-        else:
-            decision = {'Amplitude': x_max_loc2, 'Location': 'Loc2', 'decision': -1, 'tie': 0}
-
-            print "Loc 2 is better than  Loc 1"
-    else:
-        if se_1 < se_2:
-            print "Same but Loc1 is more reliable"
-            decision = {'Amplitude': x_max_loc1, 'Location': 'Loc1', 'decision': 1, 'tie': 1}
-        else:
-            print "Same but Loc2 is more reliable"
-            decision = {'Amplitude': x_max_loc2, 'Location': 'Loc2', 'decision': -1, 'tie': 1}
-
-
-    return {'decision':decision, 'p_val': p_val, 'loc1':[y_max_loc1[0], se_1[0]], 'loc2':[y_max_loc2[0], se_2[0]]}
-
-
-
 
 
 def post_process(xp, yp, evaluated_loss, target, bounds, sigma, n_samp):
@@ -303,32 +232,31 @@ def post_process(xp, yp, evaluated_loss, target, bounds, sigma, n_samp):
 
     print np.mean(np.abs(y_true))
 
+    # compute signal to noise ratio SNR
     SNR = np.mean(np.abs(y_true))/sigma
     SNR = round(SNR,3)
     print 'SNR, ', SNR
 
+    fig, ax = plt.subplots()
+
+    ax.plot(x_true[:,0], y_true[:,0], color = 'blue', label = 'true function')
+
+    indices = np.argsort(xp, axis = 0)
+
+    ax.plot(xp[indices[:,0],0], evaluated_loss[indices[:,0],0], color = 'red', label = 'estimated function')
 
 
-    # fig, ax = plt.subplots()
-    #
-    # ax.plot(x_true[:,0], y_true[:,0], color = 'blue', label = 'true function')
-    #
-    # indices = np.argsort(xp, axis = 0)
-    #
-    # ax.plot(xp[indices[:,0],0], evaluated_loss[indices[:,0],0], color = 'red', label = 'estimated function')
-    #
-    #
-    # ax.scatter(xp, yp, color = 'green', label = 'sampled points')
-    # ax.axvline(x = x_max, color = 'black')
-    # ax.set_ylabel('y')
-    # ax.set_xlabel('x')
-    # ax.set_title('SNR = ' + str(SNR) +  ", Number of probed points = " + str(xp.shape[0]))
-    # ax.text(0.0, -0.95, '$y = -2.0 + e^{-(x-0.5)^2} + e^{-0.5(x-0.2)^2} - 0.5(x-0.5)^2 + \epsilon $', fontsize=15)
-    #
-    # legend = ax.legend(loc = 'upper right')
-    # frame = legend.get_frame()
-    #
-    # plt.show()
+    ax.scatter(xp, yp, color = 'green', label = 'sampled points')
+    ax.axvline(x = x_max, color = 'black')
+    ax.set_ylabel('y')
+    ax.set_xlabel('x')
+    ax.set_title('SNR = ' + str(SNR) +  ", Number of probed points = " + str(xp.shape[0]))
+    ax.text(0.0, -0.95, '$y = -2.0 + e^{-(x-0.5)^2} + e^{-0.5(x-0.2)^2} - 0.5(x-0.5)^2 + \epsilon $', fontsize=15)
+
+    legend = ax.legend(loc = 'upper right')
+    frame = legend.get_frame()
+
+    plt.show()
     #
     # fig.savefig('/Users/tungphan/Box Sync/Pres/SNR.' + str(SNR) + '.' + '5' + '.pdf', dpi = 1000, figsize = (8,6))
 
@@ -338,6 +266,119 @@ def post_process(xp, yp, evaluated_loss, target, bounds, sigma, n_samp):
 
 
 
+
+
+
+#### Statistical test to determine the best site
+
+
+def find_max(xp, yp, model, bounds, n_samp = 100):
+    model.fit(xp,yp)
+    evaluated_loss = model.predict(xp)
+    opt_loc = np.argmax(evaluated_loss)
+    x_max = xp[opt_loc]
+    y_max, se = model.predict(x_max, return_std = True)  # find the optimal delta-classifier and its standard error
+    noise_level = np.sqrt(model.kernel_.k2.noise_level)
+
+    x_samp = np.linspace(bounds[:,0], bounds[:,1], num = n_samp)
+    x_samp = np.array(x_samp).reshape(len(x_samp),1)
+
+    evaluated_loss_samp = model.predict(x_samp)
+
+    SNR = np.mean(np.abs(evaluated_loss_samp))/noise_level  # Signal to noise ratio
+
+    return x_max,y_max, se, SNR
+
+
+def choose_location(dataset_loc1, dataset_loc2, bounds, gp_params = None, alpha = 1e-3, epsilon = 1e-3, sig_level = 0.05):
+    """
+     Return a decision variable indicating which location to choose
+        decision = 1, loc1 > loc2
+                = 0 , inconclusive
+                = -1, loc1 < loc2
+        Tie = 1 if two-sample t test insignificant
+            = 0 of two-sample t test significant
+
+    :param dataset_loc1: PS dataset for loc1, Nx2 numpy array
+    :param dataset_loc2: PS dataset for loc2, Nx2 numpy array
+    :param gp_params: params for gaussian process regressor (set to sklearn defaults)
+    :param alpha:
+    :param epsilon:
+    :param sig_level: significant level for t-test
+
+    """
+    # set up kernels
+    kernel_matern = Matern() + WhiteKernel(noise_level=1)
+    model = gp.GaussianProcessRegressor(kernel=kernel_matern, alpha=alpha, n_restarts_optimizer= 5, normalize_y=True)
+
+
+    # get predicted values for loc1
+    xp_loc1 = np.array(map(lambda x: [x], dataset_loc1[:,0]))
+    yp_loc1 = np.array(map(lambda y: [y], dataset_loc1[:,1]))
+
+    x_max_loc1, y_max_loc1, se_1, SNR_1 = find_max(xp_loc1, yp_loc1, model, bounds)
+
+    # get predicted values for loc2
+    xp_loc2 = np.array(map(lambda x: [x], dataset_loc2[:,0]))
+    yp_loc2 = np.array(map(lambda y: [y], dataset_loc2[:,1]))
+
+    x_max_loc2, y_max_loc2, se_2, SNR_2 = find_max(xp_loc2, yp_loc2, model, bounds)
+    t_stat = (y_max_loc1 - y_max_loc2)/np.sqrt(se_1**2 + se_2**2)
+    p_val = norm.cdf(- np.abs(t_stat))
+
+    decision = collections.OrderedDict() # store decision
+    loc1 = collections.OrderedDict()  # store info of best amplitude, delta-classifier and se for loc1
+    loc2 = collections.OrderedDict()   # info for loc2
+
+
+    print x_max_loc1
+
+    loc1['best_amplitude'] = x_max_loc1
+    loc1['best_delta_classifier'] =y_max_loc1
+    loc1['se'] = se_1
+    loc1['SNR'] =  SNR_1
+
+    loc2['best_amplitude'] = x_max_loc2
+    loc2['best_delta_lassifier'] = y_max_loc2
+    loc2['se'] = se_2
+    loc2['SNR'] = SNR_2
+
+    if p_val < sig_level:
+        if t_stat > 0:
+            decision['Best_Amplitude'] = x_max_loc1
+            decision['Best_Location'] = 'Loc1'
+            decision['Tie'] = 0
+            decision['p_val'] = p_val
+            decision['t_stat'] = t_stat
+            print "Loc 1 is better than Loc 2"
+        else:
+            decision['Best_Amplitude'] = x_max_loc2
+            decision['Best_Location'] = 'Loc2'
+            decision['Tie'] = 0
+            decision['p_val'] = p_val
+            decision['t_stat'] = t_stat
+
+            print "Loc 2 is better than  Loc 1"
+    else:
+        if se_1 < se_2:
+            print "Same but Loc1 is more reliable"
+            decision['Best_Amplitude'] = x_max_loc1
+            decision['Best_Location'] = 'Loc1'
+            decision['Tie'] = 1
+            decision['p_val'] = p_val
+            decision['t_stat'] = t_stat
+
+        else:
+            decision['Best_Amplitude'] = x_max_loc2
+            decision['Best_Location'] = 'Loc2'
+            decision['Tie'] = 1
+            decision['p_val'] = p_val
+            decision['t_stat'] = t_stat
+
+            print "Same but Loc2 is more reliable"
+
+
+    return {'decision':decision, 'loc1_info':loc1, 'loc2_info':loc2}
 
 
 
